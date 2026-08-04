@@ -1,0 +1,64 @@
+name: Windows wheel (manual)
+
+on:
+  workflow_dispatch:
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  build-wheel:
+    name: Build Python 3.12 wheel on windows-latest
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: 'pip'
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/AppData/Local/vcpkg/archives
+          key: vcpkg-windows-latest-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+          restore-keys: |
+            vcpkg-windows-latest-
+
+      - name: Install vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git -b 2025.03.19 --depth 1
+          cd vcpkg && ./bootstrap-vcpkg.sh
+          echo "VCPKG_ROOT=${{github.workspace}}/vcpkg" >> $GITHUB_ENV
+          echo "${{github.workspace}}/vcpkg" >> $GITHUB_PATH
+          ./vcpkg integrate install
+        shell: bash
+
+      - name: Install dependencies
+        run: python -m pip install -U pip "pybind11[global]" "cmake<4.0.0" build
+
+      # windows-latest ships Visual Studio 18, which CMake 3.31 has no
+      # generator for; set up MSVC and drive the build with Ninja.
+      - name: Set up MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Use Ninja generator
+        run: echo "CMAKE_GENERATOR=Ninja" >> "$GITHUB_ENV"
+        shell: bash
+
+      - name: Build
+        run: python -m build -o dist
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64 wheel (Python 3.12)
+          path: ${{github.workspace}}/dist/*.whl
